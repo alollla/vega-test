@@ -1,3 +1,4 @@
-import Pin from "./Pin";
+import PinRed from "./PinRed";
+import PinGreen from "./PinGreen";
 
-export default Pin;
+export {PinRed, PinGreen};
