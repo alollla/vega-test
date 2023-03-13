@@ -13,13 +13,22 @@ import Loader from "@/components/Loader";
 import Login from "@/components/Login";
 import {PinRed, PinGreen} from "@/components/Pin";
 import ExportXLS from "@/components/ExportXLS";
+import decode from "@/helpers/decode";
 
 const websocketUrl = "wss://admin.iotvega.com/ws";
 const devEui = "353234306D307817";
 const position:LatLngExpression = [55.013872, 82.954099];
 const fileType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=UTF-8";
 const fileExtension = ".xlsx";
-const fileName = "export";
+const reasons = [
+    "-",
+    "Current state",
+    "Sensor 1",
+    "Sensor 2",
+    "Accelerometer",
+    "Humidity limit",
+    "Temperature limit",
+]
 
 function App() {
     const [token, setToken] = useState(sessionStorage.getItem('token'));
@@ -81,7 +90,7 @@ function App() {
         const wb = { Sheets: { data: ws }, SheetNames: ["data"] };
         const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
         const data = new Blob([excelBuffer], { type: fileType });
-        FileSaver.saveAs(data, fileName + fileExtension);
+        FileSaver.saveAs(data, `${new Date().getTime()} ${fileExtension}`);
     },[]);
 
     useEffect(() => {
@@ -90,14 +99,13 @@ function App() {
                 recoverAuth();
             }
 
-            // todo: get initial values
-            // send(JSON.stringify({
-            //     cmd: "get_device_appdata_req",
-            //     keyword: ["add_data_info"],
-            //     select: {
-            //         appEui_list: [devEui]
-            //     }
-            // }));
+            send(JSON.stringify({
+                cmd: "get_data_req",
+                devEui,
+                select: {
+                    limit: 1
+                }
+            }));
         }
     // eslint-disable-next-line
     }, [readyState, recoverAuth]);
@@ -105,8 +113,6 @@ function App() {
     useEffect(() => {
         if (lastMessage !== null) {
             const data = JSON.parse(lastMessage?.data);
-            console.log("lastMessage", data)
-
             if(data?.status) {
                 switch (data?.cmd) {
                     case 'auth_resp':
@@ -119,14 +125,20 @@ function App() {
                         break;
                     case 'get_data_resp':
                         if(data?.data_list?.length) {
+                            if(data.data_list.length === 1) {
+                                const decoded = decode(data.data_list[0].data);
+                                setDeviceState(prev => ({
+                                    ...prev,
+                                    fcnt: data.data_list[0].fcnt,
+                                    isOpen: decoded.sensor1 || decoded.sensor2,
+                                    ...decoded,
+                                }));
+                            } else {
                                 exportToCSV(data.data_list);
                                 // todo: export rest (totalNum - data_list.length)
+                            }
                         }
                         break;
-                    case 'rx':
-                        console.log(data)
-                        break;
-                    default:
                 }
             } else {
                 switch (data?.err_string) {
@@ -149,9 +161,19 @@ function App() {
                         lastSentMessageRef.current = "";
                         break;
                     default:
-                        api['error']({
-                            message: data?.err_string,
-                        });
+                        if(data?.cmd === "rx") {
+                            const decoded = decode(data.data);
+                            setDeviceState(prev => ({
+                                ...prev,
+                                fcnt: data.fcnt,
+                                isOpen: decoded.sensor1 || decoded.sensor2,
+                                ...decoded
+                            }));
+                        } else {
+                            api['error']({
+                                message: data?.err_string,
+                            });
+                        }
                 }
             }
         }
@@ -177,28 +199,28 @@ function App() {
                     <div className="container">
                         <Row gutter={[16, 16]}>
                             <Col xs={24} md={12} lg={6}>
-                                Reason: {deviceState?.reason}
+                                Reason: {reasons[deviceState?.reason]}
                             </Col>
                             <Col xs={24} md={12} lg={6}>
-                                Power: {deviceState?.reason}
+                                Power: {deviceState?.power}%
                             </Col>
                             <Col xs={24} md={12} lg={6}>
-                                Time: {moment(deviceState?.ts).format("DD MMMM YYYY HH:mm")}
+                                Time: {moment.unix(deviceState?.time,).format("DD MMMM YYYY HH:mm")}
                             </Col>
                             <Col xs={24} md={12} lg={6}>
-                                Temperature: {deviceState?.reason}
+                                Temperature: {deviceState?.temperature} &deg;C
                             </Col>
                             <Col xs={24} md={12} lg={6}>
-                                Humidity: {deviceState?.reason}
+                                Humidity: {deviceState?.humidity}%
                             </Col>
                             <Col xs={24} md={12} lg={6}>
                                 State: {deviceState?.isOpen ? 'Opened' : 'Closed'}
                             </Col>
                             <Col xs={24} md={12} lg={6}>
-                                Angle: {deviceState?.reason}
+                                Angle: {deviceState?.angle}&deg;
                             </Col>
                             <Col xs={24} md={12} lg={6}>
-                                fcnt: {deviceState?.reason}
+                                fcnt: {deviceState?.fcnt}
                             </Col>
                         </Row>
                         <ExportXLS onExport={handleGetData} />
